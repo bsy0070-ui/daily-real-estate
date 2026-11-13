@@ -31,7 +31,7 @@ jobs:
           KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_REPO: ${{ github.event.repository.name }}
-        run: python run.py
+        run: xvfb-run -a python run.py
 
       - name: Commit and push results
         run: |
