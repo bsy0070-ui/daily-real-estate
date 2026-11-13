@@ -1,42 +1,23 @@
-name: Daily Real Estate Alert
-
+name: Daily Real Estate
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '30 23 * * *'
   workflow_dispatch:
-
-permissions:
-  contents: write
-
 jobs:
-  build:
+  scrape:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
+      - name: Checkout repository
+        uses: actions/checkout@v3
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-
+          python-version: '3.10'
       - name: Install dependencies
         run: |
-          pip install playwright requests
+          pip install requests playwright
           playwright install chromium
-          playwright install-deps
-
-      - name: Run script
-        env:
-          KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
-          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_REPO: ${{ github.event.repository.name }}
-        run: xvfb-run -a python run.py
-
-      - name: Commit and push results
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add docs/
-          git commit -m "Update daily real estate listings" || exit 0
-          git push
+      - name: Run scraping script
+        run: python run.py
