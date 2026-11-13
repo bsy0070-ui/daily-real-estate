@@ -79,7 +79,8 @@ def run():
     # 1) 정식 홈 접속 -> 새로운 부동산 보기
     page.goto("https://land.naver.com/", wait_until="domcontentloaded")
     time.sleep(2)
-    page.locator("text=새로운 부동산 보기").first.click()
+    page.goto("https://fin.land.naver.com/", timeout=60000)
+    page.wait_for_timeout(3000)
     time.sleep(3)
 
     # 2) 팝업 닫기
