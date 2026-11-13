@@ -4,22 +4,40 @@ import requests
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
-def get_kr_proxies():
-    proxies = []
+def get_working_kr_proxies():
+    candidates = set()
+    urls = [
+        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=KR&ssl=all&anonymity=all",
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    ]
+    # 1. KR 전용 프록시 먼저 수집
     try:
-        url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=KR&ssl=all&anonymity=all"
-        res = requests.get(url, timeout=10)
-        for line in res.text.splitlines():
-            line = line.strip()
-            if line:
-                proxies.append(f"http://{line}")
-    except Exception as e:
-        print("프록시 목록 조회 실패:", e)
-    return proxies[:15]
+        r = requests.get(urls[0], timeout=10)
+        for line in r.text.splitlines():
+            if line.strip():
+                candidates.add(f"http://{line.strip()}")
+    except Exception:
+        pass
+
+    # 2. GeoNode 무료 API에서 한국(KR) 프록시 추가 수집
+    try:
+        r = requests.get(
+            "https://proxylist.geonode.com/api/proxy-list?country=KR&limit=30&page=1&sort_by=lastChecked&sort_type=desc",
+            timeout=10,
+        ).json()
+        for row in r.get("data", []):
+            ip = row.get("ip")
+            port = row.get("port")
+            if ip and port:
+                candidates.add(f"http://{ip}:{port}")
+    except Exception:
+        pass
+
+    return list(candidates)[:25]
 
 def send_kakao(link_url, count):
-    rest_key = os.environ["KAKAO_REST_KEY"]
-    refresh_token = os.environ["KAKAO_REFRESH_TOKEN"]
+    rest_key = os.environ.get("KAKAO_REST_KEY", "").strip()
+    refresh_token = os.environ.get("KAKAO_REFRESH_TOKEN", "").strip()
 
     token_res = requests.post(
         "https://kauth.kakao.com/oauth/token",
@@ -29,8 +47,12 @@ def send_kakao(link_url, count):
             "refresh_token": refresh_token,
         },
     ).json()
-    access_token = token_res["access_token"]
 
+    if "access_token" not in token_res:
+        print("카카오 토큰 발급 실패:", token_res)
+        return
+
+    access_token = token_res["access_token"]
     today_str = datetime.now().strftime("%Y-%m-%d")
     template = {
         "object_type": "text",
@@ -54,16 +76,14 @@ def fetch_listings_with_proxy(proxy_server):
         "&cortarNo=4159026200&sort=rank"
     )
     with sync_playwright() as p:
-        launch_args = {"headless": True}
-        if proxy_server:
-            launch_args["proxy"] = {"server": proxy_server}
-        browser = p.chromium.launch(**launch_args)
+        browser = p.chromium.launch(headless=True, proxy={"server": proxy_server})
         context = browser.new_context(
             user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             locale="ko-KR",
+            ignore_https_errors=True,
         )
         page = context.new_page()
-        page.goto("https://m.land.naver.com/", timeout=20000)
+        page.goto("https://m.land.naver.com/", timeout=15000, wait_until="domcontentloaded")
         page.wait_for_timeout(1500)
 
         for page_num in range(1, 15):
@@ -77,7 +97,7 @@ def fetch_listings_with_proxy(proxy_server):
             if not body:
                 break
             for b in body:
-                if b.get("cortarNm") == "새솔동" or "새솔" in b.get("cortarNm", ""):
+                if "새솔" in b.get("cortarNm", ""):
                     items.append(b)
             if not res.get("more", False):
                 break
@@ -86,18 +106,18 @@ def fetch_listings_with_proxy(proxy_server):
 
 def main():
     items = []
-    proxies = get_kr_proxies()
-    print(f"탐색된 한국 프록시 수: {len(proxies)}")
+    proxies = get_working_kr_proxies()
+    print(f"수집된 한국 프록시 후보: {len(proxies)}개")
 
     for px in proxies:
         try:
-            print(f"프록시 시도 중: {px}")
+            print(f"시도 중: {px}")
             items = fetch_listings_with_proxy(px)
             if items:
-                print(f"수집 성공! 총 {len(items)}건")
+                print(f"성공! 총 {len(items)}건 수집")
                 break
         except Exception as e:
-            print(f"프록시 실패 ({px}): {e}")
+            print(f"실패 ({px}): {str(e)[:60]}")
             continue
 
     os.makedirs("docs", exist_ok=True)
