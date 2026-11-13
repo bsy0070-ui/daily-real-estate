@@ -1,13 +1,26 @@
 import os
+import json
 import requests
 from datetime import datetime
 from playwright.sync_api import sync_playwright
+
+def get_kr_proxies():
+    proxies = []
+    try:
+        url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=KR&ssl=all&anonymity=all"
+        res = requests.get(url, timeout=10)
+        for line in res.text.splitlines():
+            line = line.strip()
+            if line:
+                proxies.append(f"http://{line}")
+    except Exception as e:
+        print("프록시 목록 조회 실패:", e)
+    return proxies[:15]
 
 def send_kakao(link_url, count):
     rest_key = os.environ["KAKAO_REST_KEY"]
     refresh_token = os.environ["KAKAO_REFRESH_TOKEN"]
 
-    # 1. Access Token 갱신
     token_res = requests.post(
         "https://kauth.kakao.com/oauth/token",
         data={
@@ -18,7 +31,6 @@ def send_kakao(link_url, count):
     ).json()
     access_token = token_res["access_token"]
 
-    # 2. 나에게 보내기 발송
     today_str = datetime.now().strftime("%Y-%m-%d")
     template = {
         "object_type": "text",
@@ -29,29 +41,30 @@ def send_kakao(link_url, count):
     res = requests.post(
         "https://kapi.kakao.com/v2/api/talk/memo/default/send",
         headers={"Authorization": f"Bearer {access_token}"},
-        data={"template_object": str(template).replace("'", '"')},
+        data={"template_object": json.dumps(template, ensure_ascii=False)},
     )
     print("카카오톡 발송 결과:", res.status_code, res.text)
 
-def main():
+def fetch_listings_with_proxy(proxy_server):
     items = []
-    # 화성시 만세구 새솔동 모바일 상가 월세 API 경로
     target_url = (
         "https://m.land.naver.com/cluster/ajax/articleList?"
         "rletTpCd=D02&tradTpCd=B2&z=15&lat=37.2835&lon=126.8242"
         "&btm=37.2700&lft=126.8050&top=37.2970&rgt=126.8430"
         "&cortarNo=4159026200&sort=rank"
     )
-
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        launch_args = {"headless": True}
+        if proxy_server:
+            launch_args["proxy"] = {"server": proxy_server}
+        browser = p.chromium.launch(**launch_args)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             locale="ko-KR",
         )
         page = context.new_page()
-        page.goto("https://m.land.naver.com/", timeout=60000)
-        page.wait_for_timeout(2000)
+        page.goto("https://m.land.naver.com/", timeout=20000)
+        page.wait_for_timeout(1500)
 
         for page_num in range(1, 15):
             res = page.evaluate(
@@ -69,8 +82,24 @@ def main():
             if not res.get("more", False):
                 break
         browser.close()
+    return items
 
-    # HTML 대시보드 생성
+def main():
+    items = []
+    proxies = get_kr_proxies()
+    print(f"탐색된 한국 프록시 수: {len(proxies)}")
+
+    for px in proxies:
+        try:
+            print(f"프록시 시도 중: {px}")
+            items = fetch_listings_with_proxy(px)
+            if items:
+                print(f"수집 성공! 총 {len(items)}건")
+                break
+        except Exception as e:
+            print(f"프록시 실패 ({px}): {e}")
+            continue
+
     os.makedirs("docs", exist_ok=True)
     today_str = datetime.now().strftime("%Y-%m-%d")
     rows_html = ""
